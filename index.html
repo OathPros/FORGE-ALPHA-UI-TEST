@@ -1,0 +1,702 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Atomic Article Builder Prototype</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <style>
+    :root { --app-header-h: 74px; }
+    body { background: var(--bs-light); }
+    .app-shell { height: calc(100vh - var(--app-header-h)); }
+    .sidebar { width: 355px; max-width: 355px; height: calc(100vh - var(--app-header-h)); overflow-y: auto; }
+    .workspace { height: calc(100vh - var(--app-header-h)); overflow-y: auto; }
+    .source-preview { min-height: 210px; max-height: 260px; overflow-y: auto; white-space: pre-wrap; }
+    .article-body-area { min-height: 130px; }
+    .drop-zone { border-style: dashed !important; }
+    .focus-ring:focus, .focus-ring:focus-visible,
+    .form-control:focus, .form-select:focus, .btn:focus-visible {
+      box-shadow: 0 0 0 .25rem rgba(13, 110, 253, .35) !important;
+    }
+    .sticky-card-head { position: sticky; top: 0; z-index: 2; background: var(--bs-white); }
+    .clickable { cursor: pointer; }
+  </style>
+</head>
+<body>
+  <header class="sticky-top bg-white border-bottom shadow-sm" style="min-height:var(--app-header-h)">
+    <div class="container-fluid py-2 px-3 d-flex align-items-center justify-content-between gap-3">
+      <div>
+        <h1 class="h4 mb-0">Atomic Article Builder</h1>
+        <p class="mb-0 text-muted small">Generate, review, and publish atomic KB article drafts</p>
+      </div>
+      <div class="d-flex align-items-center gap-2">
+        <span class="badge text-bg-secondary">Prototype</span>
+        <span id="saveStateBadge" class="badge text-bg-success" aria-live="polite">Saved</span>
+        <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="offcanvas" data-bs-target="#devNotes" aria-controls="devNotes">
+          <i class="bi bi-question-circle me-1"></i>Developer notes
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="container-fluid app-shell px-0">
+    <div class="row g-0 h-100">
+      <aside class="col-auto border-end bg-body sidebar p-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h2 class="h6 mb-0">Draft sets</h2>
+          <span id="draftCountBadge" class="badge text-bg-light border">0</span>
+        </div>
+        <label for="draftSearch" class="form-label small">Search</label>
+        <input id="draftSearch" class="form-control form-control-sm mb-2 focus-ring" type="search" placeholder="Search draft sets">
+
+        <div class="btn-group btn-group-sm w-100 mb-3" role="group" aria-label="Draft filters">
+          <button class="btn btn-outline-secondary active filter-btn" data-filter="all">All</button>
+          <button class="btn btn-outline-secondary filter-btn" data-filter="Draft">Draft</button>
+          <button class="btn btn-outline-secondary filter-btn" data-filter="Needs review">Needs review</button>
+          <button class="btn btn-outline-secondary filter-btn" data-filter="Ready to publish">Ready</button>
+          <button class="btn btn-outline-secondary filter-btn" data-filter="Partially published">Partial</button>
+        </div>
+
+        <button id="newDraftBtn" class="btn btn-primary w-100 mb-3"><i class="bi bi-plus-lg me-1"></i>New Draft Set</button>
+        <div id="draftList" class="list-group list-group-flush"></div>
+      </aside>
+
+      <section class="col workspace p-3" aria-label="Draft workspace">
+        <div id="workspaceContent" class="d-flex flex-column gap-3"></div>
+      </section>
+    </div>
+  </main>
+
+  <div class="offcanvas offcanvas-end" tabindex="-1" id="devNotes" aria-labelledby="devNotesLabel">
+    <div class="offcanvas-header">
+      <h3 class="offcanvas-title h5" id="devNotesLabel">Prototype Notes</h3>
+      <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+    </div>
+    <div class="offcanvas-body">
+      <ul class="small">
+        <li>Uses localStorage for simulated persistence of draft sets.</li>
+        <li>.doc/.docx parsing is intentionally mocked with placeholder preview text.</li>
+        <li>Generation and validation workflows are simulated for IA and UX handoff.</li>
+      </ul>
+    </div>
+  </div>
+
+  <template id="articleCardTemplate">
+    <article class="card shadow-sm rounded mb-3" data-article-id="">
+      <div class="card-header bg-white">
+        <div class="d-flex flex-wrap align-items-center gap-2">
+          <div class="form-check me-1">
+            <input class="form-check-input select-article" type="checkbox" aria-label="Select article">
+          </div>
+          <input class="form-control form-control-sm flex-grow-1 article-title focus-ring" type="text" aria-label="Article title">
+          <span class="badge text-bg-info confidence-badge"></span>
+          <span class="badge text-bg-secondary status-badge"></span>
+          <span class="badge publish-ready-badge"></span>
+          <button class="btn btn-sm btn-outline-secondary ms-auto" data-bs-toggle="collapse" data-bs-target="" aria-expanded="true">
+            <i class="bi bi-arrows-collapse"></i>
+          </button>
+        </div>
+      </div>
+      <div class="collapse show article-collapse">
+        <div class="card-body">
+          <div class="row g-2 mb-3">
+            <div class="col-md-3"><label class="form-label small">Article type</label><input class="form-control form-control-sm article-type focus-ring" type="text"></div>
+            <div class="col-md-3"><label class="form-label small">Audience</label><input class="form-control form-control-sm article-audience focus-ring" type="text"></div>
+            <div class="col-md-3"><label class="form-label small">Tags</label><input class="form-control form-control-sm article-tags focus-ring" type="text"></div>
+            <div class="col-md-3"><label class="form-label small">Related articles</label><input class="form-control form-control-sm article-related focus-ring" type="text"></div>
+          </div>
+
+          <ul class="nav nav-tabs" role="tablist">
+            <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="">Description</button></li>
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="">Resolution</button></li>
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="">Preview</button></li>
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="">Diagnostics</button></li>
+          </ul>
+
+          <div class="tab-content border border-top-0 rounded-bottom p-3 bg-body-tertiary">
+            <div class="tab-pane fade show active">
+              <label class="form-label small">Description (rich text)</label>
+              <textarea class="form-control article-desc article-body-area focus-ring"></textarea>
+            </div>
+            <div class="tab-pane fade">
+              <label class="form-label small">Resolution (rich text)</label>
+              <textarea class="form-control article-res article-body-area focus-ring"></textarea>
+            </div>
+            <div class="tab-pane fade article-preview small"></div>
+            <div class="tab-pane fade article-diagnostics small"></div>
+          </div>
+        </div>
+        <div class="card-footer bg-white d-flex gap-2 justify-content-end">
+          <button class="btn btn-sm btn-outline-primary save-article">Save</button>
+          <button class="btn btn-sm btn-outline-secondary duplicate-article">Duplicate</button>
+          <button class="btn btn-sm btn-outline-danger delete-article">Delete</button>
+          <button class="btn btn-sm btn-success publish-article">Publish</button>
+        </div>
+      </div>
+    </article>
+  </template>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    const STORAGE_KEY = 'atomic_article_builder_drafts_v1';
+    let state = { drafts: [], selectedDraftId: null, filter: 'all', search: '', saveState: 'Saved', generating: false };
+
+    const statusBadgeClass = {
+      'Draft': 'text-bg-secondary',
+      'Needs review': 'text-bg-warning',
+      'Ready to publish': 'text-bg-success',
+      'Partially published': 'text-bg-primary'
+    };
+
+    function nowISO(){ return new Date().toISOString(); }
+    function fmt(ts){ return new Date(ts).toLocaleString(); }
+    function uid(prefix='id'){ return prefix + '_' + Math.random().toString(36).slice(2, 9); }
+
+    function seedData(){
+      const d1 = {
+        id: uid('draft'), title:'April Billing Escalations Batch', status:'Needs review', created_at:'2026-04-08T14:22:00Z', updated_at:nowISO(),
+        source_batch:[
+          {id:uid('src'), name:'billing_escalations.docx', type:'DOCX placeholder', content:'Placeholder preview: simulated extraction from billing_escalations.docx...'},
+          {id:uid('src'), name:'payment_failures.txt', type:'TXT', content:'TXT notes:\n- Gateway timeout patterns\n- Retry guidance\n- Known incident links'},
+          {id:uid('src'), name:'Support lead meeting notes', type:'Pasted text', content:'Agents request a KB article for duplicate invoice disputes and auto-retry communication.'}
+        ],
+        generation_summary:{recommended_count:3, rationale:[
+          {topic:'Duplicate invoice dispute flow', decision:'include', reason:'High ticket volume + clear remediation path.'},
+          {topic:'Card gateway timeout handling', decision:'include', reason:'Multiple escalation sources map to one action path.'},
+          {topic:'Legacy wire transfer exception', decision:'exclude', reason:'Out-of-scope for current product tier.'},
+          {topic:'Payment retries + duplicate billing', decision:'merge', reason:'Overlapping troubleshooting context.'}
+        ], gaps:['Need exact SLA for finance handoff','Need screenshot of billing history panel'], notes:'Word docs are placeholder extracted in prototype.', generated:true, validation_issues:[]},
+        article_drafts:[
+          mkArticle('Handle duplicate invoice disputes','0.91','Needs review',false,'Troubleshooting','Support Agent','billing,invoice','KB-349',
+            '<p>Customers may report duplicate invoice charges after retry attempts.</p>','<ol><li>Confirm transaction IDs.</li><li>Open finance review if mismatch persists.</li></ol>', ['Attach internal finance SLA reference'], ['Missing finance SLA'], 'Coverage from meeting notes + txt file'),
+          mkArticle('Resolve payment gateway timeout errors','0.88','Draft',false,'Troubleshooting','Support Agent','payment,gateway,timeout','KB-201',
+            '<p>Timeouts can occur during peak periods.</p>','<p>Retry once, then confirm pending state before reattempting.</p>', [], ['publish_ready false'], 'Strong coverage from TXT file'),
+          mkArticle('Communicate retry outcomes to customers','0.79','Ready to publish',true,'How-to','Support Agent','communication,retry','KB-112',
+            '<p>Use the standard retry outcome template.</p>','<p>Provide transaction status, ETA, and next action.</p>', [], [], 'Sourced from pasted notes')
+        ]
+      };
+
+      const d2 = {
+        id: uid('draft'), title:'SSO Access Recovery Draft Set', status:'Ready to publish', created_at:'2026-04-01T09:12:00Z', updated_at:'2026-04-14T16:40:00Z',
+        source_batch:[{id:uid('src'), name:'sso_runbook.doc', type:'DOC placeholder', content:'Placeholder preview: simulated extraction from legacy .doc runbook.'}],
+        generation_summary:{recommended_count:2, rationale:[{topic:'Admin unlock flow',decision:'include',reason:'Directly referenced in runbook.'}], gaps:['Need updated Okta screenshot'], notes:'Generated from one source file.', generated:true, validation_issues:[]},
+        article_drafts:[mkArticle('Admin unlock process for SSO lockouts','0.94','Ready to publish',true,'How-to','IT Admin','sso,okta,lockout','KB-501','<p>Use admin console to unlock user and reset MFA challenge.</p>','<p>Validate tenant, unlock account, send confirmation.</p>',[],[],'Source doc fully covers process')]
+      };
+
+      const d3 = {
+        id: uid('draft'), title:'Chat Widget Incident FAQ', status:'Partially published', created_at:'2026-03-29T13:00:00Z', updated_at:'2026-04-10T20:01:00Z',
+        source_batch:[{id:uid('src'), name:'incident_faq.txt', type:'TXT', content:'FAQ draft for intermittent chat widget disconnects.'}],
+        generation_summary:{recommended_count:1, rationale:[{topic:'Reconnect steps',decision:'include',reason:'Core recurring issue.'}], gaps:[], notes:'One article published last week.', generated:true, validation_issues:[]},
+        article_drafts:[mkArticle('Reconnect a dropped chat widget session','0.86','Partially published',true,'FAQ','End user','chat,disconnect','KB-777','<p>If chat disconnects, reload and sign in again.</p>','<p>Clear cache and reinitialize widget token.</p>',[],[],'Published to one locale only')]
+      };
+      return [d1,d2,d3];
+    }
+
+    function mkArticle(title, confidence, status, ready, type, audience, tags, related, desc, res, needs, blockers, coverage){
+      return { id:uid('art'), title, confidence, status, publish_ready:ready, selected:false, article_type:type, audience, tags, related_articles:related,
+        description_html:desc, resolution_html:res, diagnostics:{needs_input:needs, publish_blockers:blockers, source_coverage_notes:coverage, validation_messages:[]} };
+    }
+
+    function load(){
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if(raw){ try{ state.drafts = JSON.parse(raw); } catch { state.drafts = seedData(); } }
+      else { state.drafts = seedData(); persist(true); }
+      if(!state.selectedDraftId && state.drafts[0]) state.selectedDraftId = state.drafts[0].id;
+    }
+
+    function persist(initial=false){
+      state.saveState = initial ? 'Saved' : 'Saving…'; renderSaveBadge();
+      setTimeout(() => {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state.drafts));
+        state.saveState = 'Saved';
+        renderSaveBadge();
+      }, initial ? 0 : 450);
+    }
+
+    function markUnsaved(){ state.saveState = 'Unsaved changes'; renderSaveBadge(); }
+    function renderSaveBadge(){
+      const b = document.getElementById('saveStateBadge'); b.textContent = state.saveState;
+      b.className = 'badge ' + (state.saveState === 'Saved' ? 'text-bg-success' : state.saveState === 'Saving…' ? 'text-bg-info' : 'text-bg-warning');
+    }
+
+    function getSelectedDraft(){ return state.drafts.find(d => d.id === state.selectedDraftId); }
+
+    function countsByType(sourceBatch){
+      const c={doc:0,docx:0,txt:0,pasted:0};
+      sourceBatch.forEach(s=>{ if(s.type.startsWith('DOCX')) c.docx++; else if(s.type.startsWith('DOC ')) c.doc++; else if(s.type==='TXT') c.txt++; else c.pasted++; });
+      return c;
+    }
+
+    function renderSidebar(){
+      const list = document.getElementById('draftList'); list.innerHTML='';
+      let drafts = state.drafts.filter(d => state.filter==='all' || d.status===state.filter);
+      if(state.search.trim()) drafts = drafts.filter(d=> (d.title+d.status).toLowerCase().includes(state.search.toLowerCase()));
+      document.getElementById('draftCountBadge').textContent = drafts.length;
+
+      drafts.forEach(d => {
+        const readyCount = d.article_drafts.filter(a=>a.publish_ready).length;
+        const publishedCount = d.article_drafts.filter(a=>a.status.toLowerCase().includes('published')).length;
+        const item = document.createElement('div');
+        item.className = 'list-group-item list-group-item-action p-2 rounded mb-2 border ' + (d.id===state.selectedDraftId ? 'active' : '');
+        item.innerHTML = `
+          <div class="d-flex justify-content-between align-items-start gap-2">
+            <button class="btn btn-link text-start p-0 text-decoration-none ${d.id===state.selectedDraftId?'text-white':'text-body'} open-draft" data-id="${d.id}">
+              <div class="fw-semibold">${escapeHtml(d.title)}</div>
+              <div class="small ${d.id===state.selectedDraftId?'text-white-50':'text-muted'}">Updated ${fmt(d.updated_at)}</div>
+              <div class="small ${d.id===state.selectedDraftId?'text-white-50':'text-muted'}">${d.source_batch.length} sources • ${d.article_drafts.length} articles • ${readyCount} ready${publishedCount?` • ${publishedCount} published`:''}</div>
+            </button>
+            <div class="dropdown">
+              <button class="btn btn-sm ${d.id===state.selectedDraftId?'btn-light':'btn-outline-secondary'}" data-bs-toggle="dropdown" aria-label="Draft actions"><i class="bi bi-three-dots"></i></button>
+              <ul class="dropdown-menu dropdown-menu-end">
+                <li><button class="dropdown-item open-draft" data-id="${d.id}">Open</button></li>
+                <li><button class="dropdown-item rename-draft" data-id="${d.id}">Rename</button></li>
+                <li><button class="dropdown-item duplicate-draft" data-id="${d.id}">Duplicate</button></li>
+                <li><button class="dropdown-item text-danger delete-draft" data-id="${d.id}">Delete</button></li>
+              </ul>
+            </div>
+          </div>
+          <span class="badge ${statusBadgeClass[d.status]||'text-bg-secondary'} mt-2">${d.status}</span>
+        `;
+        list.appendChild(item);
+      });
+    }
+
+    function renderWorkspace(){
+      const draft = getSelectedDraft();
+      const el = document.getElementById('workspaceContent');
+      if(!draft){ el.innerHTML = '<div class="alert alert-info">No draft set selected.</div>'; return; }
+      const sourceCounts = countsByType(draft.source_batch);
+      const selectedArticles = draft.article_drafts.filter(a=>a.selected);
+      const selectedReady = selectedArticles.filter(a=>a.publish_ready).length;
+
+      el.innerHTML = `
+        <section class="card shadow-sm rounded">
+          <div class="card-body d-flex justify-content-between gap-3 flex-wrap">
+            <div class="flex-grow-1">
+              <label class="form-label small">Draft set title</label>
+              <input id="draftTitleInput" class="form-control focus-ring" value="${escapeAttr(draft.title)}" aria-label="Draft set title">
+              <div class="mt-2 d-flex flex-wrap gap-2 small text-muted">
+                <span>Created: ${fmt(draft.created_at)}</span>
+                <span>Last updated: ${fmt(draft.updated_at)}</span>
+                <span class="badge text-bg-light border">${draft.source_batch.length} sources</span>
+                <span class="badge text-bg-light border">${draft.article_drafts.length} articles</span>
+                <span class="badge ${statusBadgeClass[draft.status]||'text-bg-secondary'}">${draft.status}</span>
+              </div>
+            </div>
+            <div class="d-flex gap-2 align-items-start flex-wrap">
+              <button class="btn btn-outline-primary" id="saveDraftBtn">Save draft</button>
+              <button class="btn btn-outline-secondary" id="dupDraftBtn">Duplicate draft set</button>
+              <button class="btn btn-outline-danger" id="delDraftBtn">Delete draft set</button>
+              <button class="btn btn-outline-dark" id="exportDraftBtn">Export JSON</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="card shadow-sm rounded">
+          <div class="card-header bg-white"><h3 class="h6 mb-0">Source batch</h3></div>
+          <div class="card-body">
+            <div class="row g-3">
+              <div class="col-lg-5">
+                <h4 class="h6">Add source</h4>
+                <div id="dropZone" class="drop-zone border rounded bg-light text-center p-4 mb-2" tabindex="0">
+                  <p class="mb-1 fw-semibold">Drag and drop files here</p>
+                  <p class="small text-muted mb-0">Accepted: .doc, .docx, .txt (placeholder handling for Word files)</p>
+                </div>
+                <label for="filePicker" class="form-label small">File picker (multiple)</label>
+                <input id="filePicker" class="form-control mb-2" type="file" multiple accept=".doc,.docx,.txt">
+                <div class="alert alert-warning py-2 small">Prototype note: Word extraction is placeholder-only in this demo.</div>
+                <label for="pastedSource" class="form-label small">Pasted text source</label>
+                <textarea id="pastedSource" class="form-control mb-2 focus-ring" rows="6" placeholder="Paste source notes here..."></textarea>
+                <button id="addPastedBtn" class="btn btn-sm btn-primary">Add pasted text</button>
+              </div>
+              <div class="col-lg-7">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                  <h4 class="h6 mb-0">Source items</h4>
+                  <span class="small text-muted">${draft.source_batch.length} source items: ${sourceCounts.doc + sourceCounts.docx} Word docs, ${sourceCounts.txt} TXT file, ${sourceCounts.pasted} pasted note</span>
+                </div>
+                <div id="sourceList" class="list-group mb-3"></div>
+                <h5 class="h6">Source preview</h5>
+                <div id="sourcePreview" class="source-preview border rounded p-2 bg-body"></div>
+                <div class="small text-muted mt-1">Generation runs against the full source batch, not only the previewed item.</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card shadow-sm rounded">
+          <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <h3 class="h6 mb-0">Generation summary</h3>
+            <div class="btn-group btn-group-sm" role="group">
+              <button id="genBtn" class="btn btn-primary">Generate Articles</button>
+              <button id="regenBtn" class="btn btn-outline-primary">Regenerate</button>
+              <button id="mockBtn" class="btn btn-outline-secondary">Load Mock Response</button>
+              <button id="validateBtn" class="btn btn-outline-dark">Validate Articles</button>
+            </div>
+          </div>
+          <div class="card-body" id="generationBody"></div>
+        </section>
+
+        <section class="card shadow-sm rounded mb-5">
+          <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <h3 class="h6 mb-0">Article drafts</h3>
+            <div class="d-flex align-items-center gap-2">
+              <span class="badge text-bg-light border">Selected: ${selectedArticles.length}</span>
+              <span class="badge text-bg-light border">Selected publish-ready: ${selectedReady}</span>
+              <div class="btn-group btn-group-sm">
+                <button id="selectAllBtn" class="btn btn-outline-secondary">Select all</button>
+                <button id="clearSelBtn" class="btn btn-outline-secondary">Clear selection</button>
+                <button id="publishSelectedBtn" class="btn btn-success">Publish Selected</button>
+              </div>
+            </div>
+          </div>
+          <div class="card-body" id="articlesContainer"></div>
+        </section>
+      `;
+
+      renderSourceList();
+      renderSourcePreview(draft.source_batch[0]?.id || null);
+      renderGenerationBody();
+      renderArticles();
+      bindWorkspaceEvents();
+    }
+
+    function renderSourceList(){
+      const draft = getSelectedDraft(); const list = document.getElementById('sourceList'); list.innerHTML='';
+      draft.source_batch.forEach(s=>{
+        const row = document.createElement('div');
+        row.className = 'list-group-item d-flex justify-content-between align-items-center';
+        row.innerHTML = `
+          <div>
+            <div class="fw-semibold">${escapeHtml(s.name)}</div>
+            <span class="badge text-bg-light border">${s.type}</span>
+          </div>
+          <div class="d-flex gap-2">
+            <button class="btn btn-sm btn-outline-primary preview-source" data-id="${s.id}">Preview</button>
+            <button class="btn btn-sm btn-outline-danger remove-source" data-id="${s.id}">Remove</button>
+          </div>
+        `;
+        list.appendChild(row);
+      });
+      if(!draft.source_batch.length) list.innerHTML = '<div class="alert alert-light border mb-0">No source items yet.</div>';
+    }
+
+    function renderSourcePreview(sourceId){
+      const draft = getSelectedDraft();
+      const source = draft.source_batch.find(s=>s.id===sourceId);
+      document.getElementById('sourcePreview').innerHTML = source
+        ? `<div class="small"><strong>${escapeHtml(source.name)}</strong>\n\n${escapeHtml(source.content || 'No preview available.')}</div>`
+        : '<div class="text-muted small">Select a source item to preview content.</div>';
+    }
+
+    function renderGenerationBody(){
+      const draft = getSelectedDraft(); const body = document.getElementById('generationBody');
+      if(state.generating){
+        body.innerHTML = '<div class="d-flex align-items-center gap-2"><div class="spinner-border spinner-border-sm"></div><span>Analyzing source batch and generating article candidates…</span></div>';
+        return;
+      }
+      if(!draft.generation_summary?.generated){
+        body.innerHTML = '<div class="alert alert-light border mb-0">No generation results yet. Add at least one source item, then generate.</div>';
+        return;
+      }
+      const g = draft.generation_summary;
+      body.innerHTML = `
+        <p class="mb-2"><strong>Recommended article count:</strong> <span class="badge text-bg-primary">${g.recommended_count}</span></p>
+        <h4 class="h6">Candidate rationale</h4>
+        <ul class="list-group mb-3">
+          ${g.rationale.map(r=>`<li class="list-group-item d-flex justify-content-between align-items-start"><div><div class="fw-semibold">${escapeHtml(r.topic)}</div><div class="small text-muted">${escapeHtml(r.reason)}</div></div><span class="badge ${decisionCls(r.decision)}">${r.decision}</span></li>`).join('')}
+        </ul>
+        <h4 class="h6">Content gaps</h4>
+        ${g.gaps.length ? `<ul class="list-group mb-3">${g.gaps.map(x=>`<li class="list-group-item">${escapeHtml(x)}</li>`).join('')}</ul>` : '<div class="alert alert-success py-2">No content gaps identified.</div>'}
+        <h4 class="h6">Processing notes</h4>
+        <p class="small text-muted">${escapeHtml(g.notes || 'No notes')}</p>
+        ${g.validation_issues?.length ? `<div class="alert alert-warning mb-0"><strong>Validation issues:</strong><ul class="mb-0">${g.validation_issues.map(v=>`<li>${escapeHtml(v)}</li>`).join('')}</ul></div>` : ''}
+      `;
+    }
+
+    function renderArticles(){
+      const draft = getSelectedDraft();
+      const container = document.getElementById('articlesContainer'); container.innerHTML = '';
+      if(!draft.article_drafts.length){ container.innerHTML = '<div class="alert alert-light border">No article drafts yet.</div>'; return; }
+
+      draft.article_drafts.forEach((a, i) => {
+        const template = document.getElementById('articleCardTemplate');
+        const node = template.content.firstElementChild.cloneNode(true);
+        const collapseId = `articleCollapse_${a.id}`;
+        const tabBase = `articleTab_${a.id}_`;
+
+        node.dataset.articleId = a.id;
+        node.querySelector('.article-title').value = a.title;
+        node.querySelector('.select-article').checked = !!a.selected;
+        node.querySelector('.confidence-badge').textContent = `confidence ${a.confidence}`;
+        node.querySelector('.status-badge').textContent = a.status;
+        const readyB = node.querySelector('.publish-ready-badge');
+        readyB.textContent = a.publish_ready ? 'publish-ready' : 'not ready';
+        readyB.className = 'badge publish-ready-badge ' + (a.publish_ready ? 'text-bg-success' : 'text-bg-danger');
+
+        node.querySelector('.article-type').value = a.article_type || '';
+        node.querySelector('.article-audience').value = a.audience || '';
+        node.querySelector('.article-tags').value = a.tags || '';
+        node.querySelector('.article-related').value = a.related_articles || '';
+        node.querySelector('.article-desc').value = a.description_html || '';
+        node.querySelector('.article-res').value = a.resolution_html || '';
+
+        const collapse = node.querySelector('.article-collapse'); collapse.id = collapseId;
+        node.querySelector('[data-bs-target]').setAttribute('data-bs-target', '#' + collapseId);
+
+        const tabs = node.querySelectorAll('.nav-link');
+        const panes = node.querySelectorAll('.tab-pane');
+        tabs.forEach((t, idx)=>{
+          const id = tabBase + idx; const paneId = tabBase + 'pane_' + idx;
+          t.id = id; t.setAttribute('data-bs-target', '#' + paneId); t.setAttribute('aria-controls', paneId);
+          panes[idx].id = paneId; panes[idx].setAttribute('aria-labelledby', id);
+        });
+
+        node.querySelector('.article-preview').innerHTML = `<div><h6>Description</h6>${a.description_html || '<em class="text-muted">Empty</em>'}</div><hr><div><h6>Resolution</h6>${a.resolution_html || '<em class="text-muted">Empty</em>'}</div>`;
+        node.querySelector('.article-diagnostics').innerHTML = diagnosticsHtml(a.diagnostics);
+
+        container.appendChild(node);
+      });
+    }
+
+    function diagnosticsHtml(d){
+      return `
+        <div class="mb-2"><strong>needs_input:</strong> ${arrList(d.needs_input)}</div>
+        <div class="mb-2"><strong>publish_blockers:</strong> ${arrList(d.publish_blockers)}</div>
+        <div class="mb-2"><strong>source_coverage_notes:</strong> ${escapeHtml(d.source_coverage_notes || 'None')}</div>
+        <div><strong>validation_messages:</strong> ${arrList(d.validation_messages)}</div>
+      `;
+    }
+
+    function arrList(arr){
+      if(!arr?.length) return '<span class="text-muted">None</span>';
+      return `<ul class="list-group list-group-flush">${arr.map(x=>`<li class="list-group-item px-0 py-1">${escapeHtml(x)}</li>`).join('')}</ul>`;
+    }
+
+    function bindGlobalEvents(){
+      document.getElementById('draftSearch').addEventListener('input', e=>{ state.search = e.target.value; renderSidebar(); });
+      document.querySelectorAll('.filter-btn').forEach(b=> b.addEventListener('click', ()=>{
+        document.querySelectorAll('.filter-btn').forEach(x=>x.classList.remove('active'));
+        b.classList.add('active'); state.filter = b.dataset.filter; renderSidebar();
+      }));
+      document.getElementById('newDraftBtn').addEventListener('click', createDraft);
+
+      document.getElementById('draftList').addEventListener('click', e=>{
+        const open = e.target.closest('.open-draft'); if(open){ state.selectedDraftId = open.dataset.id; renderAll(); return; }
+        const ren = e.target.closest('.rename-draft'); if(ren){ renameDraft(ren.dataset.id); }
+        const dup = e.target.closest('.duplicate-draft'); if(dup){ duplicateDraft(dup.dataset.id); }
+        const del = e.target.closest('.delete-draft'); if(del){ deleteDraft(dupOr(del)); }
+      });
+    }
+
+    function bindWorkspaceEvents(){
+      const draft = getSelectedDraft();
+      document.getElementById('draftTitleInput').addEventListener('input', e=>{ draft.title = e.target.value; touchDraft(); renderSidebar(); });
+      document.getElementById('saveDraftBtn').addEventListener('click', ()=>{ persist(); });
+      document.getElementById('dupDraftBtn').addEventListener('click', ()=> duplicateDraft(draft.id));
+      document.getElementById('delDraftBtn').addEventListener('click', ()=> deleteDraft(draft.id));
+      document.getElementById('exportDraftBtn').addEventListener('click', exportDraftJson);
+
+      const filePicker = document.getElementById('filePicker');
+      filePicker.addEventListener('change', e => addFiles(Array.from(e.target.files || [])));
+      const dz = document.getElementById('dropZone');
+      dz.addEventListener('dragover', e=>{ e.preventDefault(); dz.classList.add('border-primary'); });
+      dz.addEventListener('dragleave', ()=> dz.classList.remove('border-primary'));
+      dz.addEventListener('drop', e=>{ e.preventDefault(); dz.classList.remove('border-primary'); addFiles(Array.from(e.dataTransfer.files || [])); });
+      document.getElementById('addPastedBtn').addEventListener('click', addPasted);
+
+      document.getElementById('sourceList').addEventListener('click', e=>{
+        const p = e.target.closest('.preview-source'); if(p) renderSourcePreview(p.dataset.id);
+        const r = e.target.closest('.remove-source'); if(r){
+          draft.source_batch = draft.source_batch.filter(s=>s.id!==r.dataset.id); touchDraft(); renderWorkspace();
+        }
+      });
+
+      document.getElementById('genBtn').addEventListener('click', ()=>runGenerate(false));
+      document.getElementById('regenBtn').addEventListener('click', ()=>runGenerate(true));
+      document.getElementById('mockBtn').addEventListener('click', loadMockResponse);
+      document.getElementById('validateBtn').addEventListener('click', validateArticles);
+
+      document.getElementById('selectAllBtn').addEventListener('click', ()=>{ draft.article_drafts.forEach(a=>a.selected=true); touchDraft(); renderWorkspace(); });
+      document.getElementById('clearSelBtn').addEventListener('click', ()=>{ draft.article_drafts.forEach(a=>a.selected=false); touchDraft(); renderWorkspace(); });
+      document.getElementById('publishSelectedBtn').addEventListener('click', publishSelected);
+
+      document.getElementById('articlesContainer').addEventListener('input', onArticleInput);
+      document.getElementById('articlesContainer').addEventListener('click', onArticleClick);
+      document.getElementById('articlesContainer').addEventListener('change', onArticleInput);
+    }
+
+    function onArticleInput(e){
+      const wrap = e.target.closest('[data-article-id]'); if(!wrap) return;
+      const draft = getSelectedDraft(); const article = draft.article_drafts.find(a=>a.id===wrap.dataset.articleId); if(!article) return;
+      article.title = wrap.querySelector('.article-title').value;
+      article.selected = wrap.querySelector('.select-article').checked;
+      article.article_type = wrap.querySelector('.article-type').value;
+      article.audience = wrap.querySelector('.article-audience').value;
+      article.tags = wrap.querySelector('.article-tags').value;
+      article.related_articles = wrap.querySelector('.article-related').value;
+      article.description_html = wrap.querySelector('.article-desc').value;
+      article.resolution_html = wrap.querySelector('.article-res').value;
+      touchDraft();
+    }
+
+    function onArticleClick(e){
+      const wrap = e.target.closest('[data-article-id]'); if(!wrap) return;
+      const draft = getSelectedDraft(); const article = draft.article_drafts.find(a=>a.id===wrap.dataset.articleId); if(!article) return;
+      if(e.target.closest('.save-article')) { touchDraft(); persist(); }
+      if(e.target.closest('.duplicate-article')) {
+        const copy = JSON.parse(JSON.stringify(article)); copy.id = uid('art'); copy.title += ' (Copy)'; copy.selected = false;
+        draft.article_drafts.push(copy); touchDraft(); renderWorkspace();
+      }
+      if(e.target.closest('.delete-article')) {
+        draft.article_drafts = draft.article_drafts.filter(a=>a.id!==article.id); touchDraft(); renderWorkspace();
+      }
+      if(e.target.closest('.publish-article')) publishOne(article);
+    }
+
+    function publishOne(article){
+      if(!article.publish_ready){ alert('Publish blocked: article is not publish-ready.'); return; }
+      article.status = 'Partially published'; touchDraft(); persist(); renderWorkspace();
+      alert('Article published (simulated).');
+    }
+
+    function publishSelected(){
+      const draft = getSelectedDraft();
+      const selected = draft.article_drafts.filter(a=>a.selected);
+      if(!selected.length){ alert('No selected articles.'); return; }
+      const blocked = selected.filter(a=>!a.publish_ready);
+      selected.filter(a=>a.publish_ready).forEach(a=> a.status='Partially published');
+      touchDraft(); persist(); renderWorkspace();
+      alert(`Published ${selected.length - blocked.length} article(s). Blocked ${blocked.length}.`);
+    }
+
+    function addFiles(files){
+      const draft = getSelectedDraft();
+      files.forEach(file => {
+        const ext = file.name.split('.').pop().toLowerCase();
+        let type = 'TXT';
+        if(ext==='docx') type = 'DOCX placeholder';
+        else if(ext==='doc') type = 'DOC placeholder';
+        else if(ext!=='txt') return;
+        draft.source_batch.push({ id: uid('src'), name: file.name, type, content: type.includes('placeholder') ? 'Placeholder preview for uploaded Word file.' : `Simulated text preview for ${file.name}.` });
+      });
+      touchDraft(); renderWorkspace();
+    }
+
+    function addPasted(){
+      const ta = document.getElementById('pastedSource'); const value = ta.value.trim();
+      if(!value){ alert('Paste text before adding.'); return; }
+      getSelectedDraft().source_batch.push({ id: uid('src'), name: 'Pasted note ' + new Date().toLocaleTimeString(), type:'Pasted text', content:value });
+      ta.value=''; touchDraft(); renderWorkspace();
+    }
+
+    function runGenerate(isRegen){
+      const draft = getSelectedDraft();
+      if(!draft.source_batch.length){ alert('Add at least one source item before generating.'); return; }
+      state.generating = true; renderGenerationBody();
+      setTimeout(()=>{
+        state.generating = false;
+        loadMockResponse(isRegen);
+      }, 900);
+    }
+
+    function loadMockResponse(isRegen=false){
+      const draft = getSelectedDraft();
+      draft.generation_summary = {
+        generated:true,
+        recommended_count: Math.max(1, Math.min(5, draft.source_batch.length + 1)),
+        rationale:[
+          {topic:'Troubleshoot authentication failures', decision:'include', reason:'Multiple sources reference failed sign-in loops.'},
+          {topic:'Consolidate token refresh + timeout guidance', decision:'merge', reason:'High overlap in recovery steps.'},
+          {topic:'Archive legacy browser issue', decision:'exclude', reason:'Low relevance to current supported stack.'}
+        ],
+        gaps:['Need exact escalation queue owner','Need final screenshot for updated UI'],
+        notes: isRegen ? 'Regenerated using current source batch.' : 'Mock response loaded for prototype demonstration.',
+        validation_issues: []
+      };
+      if(!draft.article_drafts.length || isRegen){
+        draft.article_drafts = [
+          mkArticle('Troubleshoot repeated sign-in failures','0.89','Needs review',false,'Troubleshooting','Support Agent','auth,sign-in','KB-420','<p>Users can get stuck in repeated login prompts.</p>','<ol><li>Verify account state.</li><li>Clear stale session tokens.</li></ol>', ['Need product screenshot'], ['Missing screenshot asset'],'Generated from merged source batch'),
+          mkArticle('Resolve token refresh timeout loops','0.84','Draft',false,'How-to','Support Agent','token,timeout','KB-421','<p>Token refresh loops present as intermittent errors.</p>','<p>Collect logs and reauthenticate with fresh token.</p>',[],['publish_ready false'],'Coverage partial - no final owner noted')
+        ];
+      }
+      touchDraft(); renderWorkspace();
+    }
+
+    function validateArticles(){
+      const draft = getSelectedDraft();
+      const issues = [];
+      draft.article_drafts.forEach(a => {
+        const vm = [];
+        if(!a.title.trim()) vm.push('Missing title');
+        if(!a.description_html.trim()) vm.push('Empty description');
+        if(!a.resolution_html.trim()) vm.push('Empty resolution');
+        if(a.diagnostics.needs_input?.length) vm.push('Unresolved needs_input present');
+        if(a.diagnostics.publish_blockers?.length) vm.push('Publish blockers present');
+        if(!a.publish_ready) vm.push('publish_ready false');
+        a.diagnostics.validation_messages = vm;
+        if(vm.length) issues.push(`${a.title || '(untitled)'}: ${vm.join(', ')}`);
+      });
+      draft.generation_summary.validation_issues = issues;
+      draft.status = issues.length ? 'Needs review' : 'Ready to publish';
+      touchDraft(); renderWorkspace();
+    }
+
+    function createDraft(){
+      const d = {
+        id: uid('draft'), title: 'New Draft Set ' + new Date().toLocaleDateString(), status:'Draft', created_at:nowISO(), updated_at:nowISO(),
+        source_batch:[], generation_summary:{generated:false,recommended_count:0,rationale:[],gaps:[],notes:'',validation_issues:[]}, article_drafts:[]
+      };
+      state.drafts.unshift(d); state.selectedDraftId = d.id; markUnsaved(); persist(); renderAll();
+    }
+
+    function renameDraft(id){
+      const d = state.drafts.find(x=>x.id===id); if(!d) return;
+      const name = prompt('Rename draft set', d.title); if(!name) return;
+      d.title = name.trim(); touchDraft(d); renderAll();
+    }
+
+    function duplicateDraft(id){
+      const d = state.drafts.find(x=>x.id===id); if(!d) return;
+      const copy = JSON.parse(JSON.stringify(d));
+      copy.id = uid('draft'); copy.title = d.title + ' (Copy)'; copy.created_at = nowISO(); copy.updated_at = nowISO();
+      copy.source_batch.forEach(s=>s.id=uid('src')); copy.article_drafts.forEach(a=>a.id=uid('art'));
+      state.drafts.unshift(copy); state.selectedDraftId = copy.id; touchDraft(copy); renderAll();
+    }
+
+    function deleteDraft(id){
+      if(!confirm('Delete this draft set?')) return;
+      state.drafts = state.drafts.filter(d=>d.id!==id);
+      state.selectedDraftId = state.drafts[0]?.id || null;
+      markUnsaved(); persist(); renderAll();
+    }
+
+    function touchDraft(d = getSelectedDraft()){
+      d.updated_at = nowISO();
+      markUnsaved();
+      renderSaveBadge();
+    }
+
+    function exportDraftJson(){
+      const draft = getSelectedDraft();
+      const blob = new Blob([JSON.stringify(draft, null, 2)], {type:'application/json'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${draft.title.replace(/\s+/g,'_').toLowerCase()}.json`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(a.href);
+    }
+
+    function decisionCls(decision){ return decision==='include' ? 'text-bg-success' : decision==='merge' ? 'text-bg-warning' : 'text-bg-secondary'; }
+    function escapeHtml(s=''){ return s.replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+    function escapeAttr(s=''){ return escapeHtml(s); }
+    function dupOr(el){ return el.dataset.id; }
+
+    function renderAll(){ renderSidebar(); renderWorkspace(); }
+
+    load();
+    bindGlobalEvents();
+    renderAll();
+  </script>
+</body>
+</html>
